@@ -1,0 +1,161 @@
+C:\Users\86185\Desktop\2024C>C:/Users/86185/AppData/Local/Microsoft/WindowsApps/python3.11.exe c:/Users/86185/Desktop/2024C/Code/2/process.py
+--- 开始加载和预处理数据 ---
+Excel文件读取成功，开始数据预处理...
+根据2023年产量，自动生成“预期销售量”...
+--- 数据加载和预处理完成 ---
+--- 正在准备鲁棒优化所需参数 ---
+--- 鲁棒参数准备完成 ---
+============================================================
+总不确定利润项数量 (作物数 x 年份数): 749
+设定不确定性预算 Gamma = 75
+您可以修改脚本中的 Gamma_val 值来测试不同的风险偏好。
+============================================================
+
+--- 开始构建鲁棒模型, Gamma = 75 ---
+--- 鲁棒模型构建完成，开始求解 ---
+Welcome to the CBC MILP Solver 
+Version: 2.10.12
+Build Date: Aug 20 2024
+
+command line - c:\Users\86185\Desktop\2024C\CBC\bin\cbc.exe -sec 7200 -printingOptions all -import C:\Users\86185\AppData\Local\Temp\tmpqun1r_l4.pyomo.lp -stat=1 -solve -solu C:\Users\86185\AppData\Local\Temp\tmpqun1r_l4.pyomo.soln (default strategy 1)
+seconds was changed from 1e+100 to 7200
+Option for printingOptions changed from normal to all
+ CoinLpIO::readLp(): Maximization problem reformulated as minimization
+Coin0009I Switching back to maximization to get correct duals etc
+Presolve 20395 (-103937) rows, 15916 (-61863) columns and 67639 (-319011) elements
+Statistics for presolved model
+Original problem has 46494 integers (46494 of which binary)
+Presolved problem has 10154 integers (10154 of which binary)
+==== 15915 zero objective 2 different
+15915 variables have objective of -0
+1 variables have objective of 1
+==== absolute objective values 2 different
+15915 variables have objective of 0
+1 variables have objective of 1
+==== for integers 10154 zero objective 1 different
+10154 variables have objective of -0
+==== for integers absolute objective values 1 different
+10154 variables have objective of 0
+===== end objective counts
+
+
+Problem has 20395 rows, 15916 columns (1 with objective) and 67639 elements
+There are 1 singletons with objective
+Column breakdown:
+2867 of type 0.0->inf, 2894 of type 0.0->up, 0 of type lo->inf,
+0 of type lo->up, 1 of type free, 0 of type fixed,
+0 of type -inf->0.0, 0 of type -inf->up, 10154 of type 0.0->1.0
+Row breakdown:
+0 of type E 0.0, 0 of type E 1.0, 0 of type E -1.0,
+0 of type E other, 0 of type G 0.0, 317 of type G 1.0,
+0 of type G other, 15327 of type L 0.0, 3954 of type L 1.0,
+797 of type L other, 0 of type Range 0.0->1.0, 0 of type Range other,
+0 of type Free
+Continuous objective value is 6.46767e+07 - 0.66 seconds
+Cgl0002I 53 variables fixed
+Cgl0003I 0 fixed, 0 tightened bounds, 1493 strengthened rows, 0 substitutions
+Cgl0003I 0 fixed, 0 tightened bounds, 1 strengthened rows, 0 substitutions
+Cgl0003I 0 fixed, 0 tightened bounds, 1 strengthened rows, 0 substitutions
+Cgl0003I 0 fixed, 0 tightened bounds, 1 strengthened rows, 0 substitutions
+Cgl0004I processed model has 20394 rows, 15915 columns (10154 integer (10154 of which binary)) and 61882 elements
+Cbc0038I Initial state - 763 integers unsatisfied sum - 247.167
+Cbc0038I Pass   1: (2.38 seconds) suminf.   87.50000 (175) obj. 5.55964e+07 iterations 3751
+Cbc0038I Pass   2: (2.39 seconds) suminf.   82.00000 (164) obj. 5.51685e+07 iterations 81
+Cbc0038I Pass   3: (2.41 seconds) suminf.   82.00000 (164) obj. 5.51685e+07 iterations 16
+Cbc0038I Pass   4: (2.42 seconds) suminf.   82.00000 (164) obj. 5.51685e+07 iterations 13
+Cbc0038I Pass   5: (2.44 seconds) suminf.   73.50000 (147) obj. 5.3803e+07 iterations 626
+Cbc0038I Pass   6: (2.45 seconds) suminf.   69.00000 (138) obj. 5.3803e+07 iterations 124
+Cbc0038I Pass   7: (2.47 seconds) suminf.   69.00000 (138) obj. 5.3803e+07 iterations 11
+Cbc0038I Pass   8: (2.49 seconds) suminf.   64.50000 (129) obj. 5.17434e+07 iterations 519
+Cbc0038I Pass   9: (2.50 seconds) suminf.   60.00000 (120) obj. 5.17308e+07 iterations 119
+Cbc0038I Pass  10: (2.52 seconds) suminf.   60.00000 (120) obj. 5.17308e+07 iterations 11
+Cbc0038I Pass  11: (2.53 seconds) suminf.   60.00000 (120) obj. 5.17308e+07 iterations 8
+Cbc0038I Pass  12: (2.54 seconds) suminf.   60.00000 (120) obj. 5.17308e+07 iterations 6
+Cbc0038I Pass  13: (2.57 seconds) suminf.   60.50000 (121) obj. 5.15958e+07 iterations 440
+Cbc0038I Pass  14: (2.58 seconds) suminf.   57.00000 (114) obj. 5.15945e+07 iterations 107
+Cbc0038I Pass  15: (2.59 seconds) suminf.   57.00000 (114) obj. 5.15945e+07 iterations 12
+Cbc0038I Pass  16: (2.61 seconds) suminf.   57.00000 (114) obj. 5.15945e+07 iterations 10
+Cbc0038I Pass  17: (2.62 seconds) suminf.   57.00000 (114) obj. 5.15945e+07 iterations 6
+Cbc0038I Pass  18: (2.65 seconds) suminf.   59.00000 (118) obj. 4.99905e+07 iterations 499
+Cbc0038I Pass  19: (2.66 seconds) suminf.   51.50000 (103) obj. 4.94428e+07 iterations 127
+Cbc0038I Pass  20: (2.67 seconds) suminf.   51.50000 (103) obj. 4.94428e+07 iterations 7
+Cbc0038I Pass  21: (2.78 seconds) suminf.   51.50000 (103) obj. 4.94428e+07 iterations 6
+Cbc0038I Pass  22: (2.80 seconds) suminf.   56.00000 (112) obj. 4.79582e+07 iterations 396
+Cbc0038I Pass  23: (2.82 seconds) suminf.   52.50000 (105) obj. 4.79582e+07 iterations 93
+Cbc0038I Pass  24: (2.83 seconds) suminf.   52.50000 (105) obj. 4.79582e+07 iterations 5
+Cbc0038I Pass  25: (2.84 seconds) suminf.   52.50000 (105) obj. 4.79582e+07 iterations 3
+Cbc0038I Pass  26: (2.86 seconds) suminf.   50.50000 (101) obj. 4.69991e+07 iterations 434
+Cbc0038I Pass  27: (2.87 seconds) suminf.   47.50000 (95) obj. 4.69991e+07 iterations 114
+Cbc0038I Pass  28: (2.89 seconds) suminf.   47.50000 (95) obj. 4.69991e+07 iterations 2
+Cbc0038I Pass  29: (2.90 seconds) suminf.   52.00000 (104) obj. 4.5818e+07 iterations 339
+Cbc0038I Pass  30: (2.92 seconds) suminf.   48.50000 (97) obj. 4.5818e+07 iterations 99
+Cbc0038I No solution found this major pass
+Cbc0038I Before mini branch and bound, 8227 integers at bound fixed and 4566 continuous
+Cbc0038I Mini branch and bound did not improve solution (2.94 seconds)
+Cbc0038I After 4.11 seconds - Feasibility pump exiting - took 2.00 seconds
+Cbc0031I 464 added rows had average density of 28.616379
+Cbc0013I At root node, 464 cuts changed objective from 64676742 to 64676742 in 10 passes
+Cbc0014I Cut generator 0 (Probing) - 3508 row cuts average 2.0 elements, 0 column cuts (104 active)  in 0.265 seconds - new frequency is -100
+Cbc0014I Cut generator 1 (Gomory) - 1642 row cuts average 206.4 elements, 0 column cuts (0 active)  in 1.657 seconds - new frequency is -100
+Cbc0014I Cut generator 2 (Knapsack) - 51 row cuts average 2.0 elements, 0 column cuts (0 active)  in 0.157 seconds - new frequency is -100
+Cbc0014I Cut generator 3 (Clique) - 0 row cuts average 0.0 elements, 0 column cuts (0 active)  in 0.014 seconds - new frequency is -100
+Cbc0014I Cut generator 4 (MixedIntegerRounding2) - 1136 row cuts average 33.1 elements, 0 column cuts (0 active)  in 0.135 seconds - new frequency is -100
+Cbc0014I Cut generator 5 (FlowCover) - 575 row cuts average 5.1 elements, 0 column cuts (0 active)  in 0.056 seconds - new frequency is -100
+Cbc0014I Cut generator 6 (TwoMirCuts) - 1746 row cuts average 81.9 elements, 0 column cuts (0 active)  in 1.423 seconds - new frequency is -100
+Cbc0010I After 0 nodes, 1 on tree, -1e+50 best solution, best possible 64676742 (32.14 seconds)
+Cbc0010I After 100 nodes, 63 on tree, -1e+50 best solution, best possible 64676742 (62.83 seconds)
+Cbc0010I After 200 nodes, 129 on tree, -1e+50 best solution, best possible 64676742 (66.81 seconds)
+Cbc0010I After 300 nodes, 205 on tree, -1e+50 best solution, best possible 64676742 (69.05 seconds)
+Cbc0012I Integer solution of 64676742 found by rounding after 52348 iterations and 330 nodes (69.81 seconds)
+Cbc0038I Full problem 20394 rows 15915 columns, reduced to 422 rows 681 columns
+Cbc0001I Search completed - best objective 64676741.71165063, took 52348 iterations and 330 nodes (70.14 seconds)
+Cbc0032I Strong branching done 2518 times (52468 iterations), fathomed 0 nodes and fixed 0 variables
+Cbc0035I Maximum depth 206, 0 variables fixed on reduced cost
+Cuts at root node changed objective from 6.46767e+07 to 6.46767e+07
+Probing was tried 10 times and created 3508 cuts of which 104 were active after adding rounds of cuts (0.265 seconds)
+Gomory was tried 10 times and created 1642 cuts of which 0 were active after adding rounds of cuts (1.657 seconds)
+Knapsack was tried 10 times and created 51 cuts of which 0 were active after adding rounds of cuts (0.157 seconds)
+Clique was tried 10 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.014 seconds)
+MixedIntegerRounding2 was tried 10 times and created 1136 cuts of which 0 were active after adding rounds of cuts (0.135 seconds)
+FlowCover was tried 10 times and created 575 cuts of which 0 were active after adding rounds of cuts (0.056 seconds)
+TwoMirCuts was tried 10 times and created 1746 cuts of which 0 were active after adding rounds of cuts (1.423 seconds)
+ZeroHalf was tried 1 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.038 seconds)
+ImplicationCuts was tried 8 times and created 790 cuts of which 0 were active after adding rounds of cuts (0.006 seconds)
+
+Result - Optimal solution found
+
+Objective value:                64676741.71165065
+Enumerated nodes:               330
+Total iterations:               52348
+Time (CPU seconds):             79.77
+Time (Wallclock seconds):       79.77
+
+Total time (CPU seconds):       80.37   (Wallclock seconds):       80.37
+
+--- 求解完成，耗时: 83.32 秒 ---
+求解成功！
+最坏情况下保证的总利润: 64,676,742.00 元
+
+=== 正在保存 问题二 鲁棒优化结果至: c:\Users\86185\Desktop\2024C\Code\2\results\result2.xlsx ===
+保存成功！
+
+所有任务已完成。
+
+C:\Users\86185\Desktop\2024C>C:/Users/86185/AppData/Local/Microsoft/WindowsApps/python3.11.exe c:/Users/86185/Desktop/2024C/Code/2/format.py
+--- 开始运行最终格式转换脚本 ---
+正在从附件读取完整的地块和作物列表...
+模板列表加载完毕。
+
+>>> ------------------------------------
+>>> 正在处理文件: c:\Users\86185\Desktop\2024C\Code\2\results\result2.xlsx
+--> 正在处理 2024 年的数据...
+--> 正在处理 2025 年的数据...
+--> 正在处理 2026 年的数据...
+--> 正在处理 2027 年的数据...
+--> 正在处理 2028 年的数据...
+--> 正在处理 2029 年的数据...
+--> 正在处理 2030 年的数据...
+
+所有年份的汇总表已成功保存至: c:\Users\86185\Desktop\2024C\Code\2\results\result2_final_summary.xlsx
+
+--- 所有任务已完成 ---
