@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 文件名: solve_q1_final.py (v1.8 - 单次求解，600秒超时输出)
+# 文件名: solve_q1_final.py (v1.9 - 修复超时结果输出问题)
 
 import pandas as pd
 import pyomo.environ as pyo
@@ -239,25 +239,35 @@ def build_and_solve_once(params, case_type, solver_path, timeout=600):
         print(f"求解过程中出错: {str(e)}")
         return None
     end_time = time.time()
-
-    if (results.solver.status == pyo.SolverStatus.ok) and (results.solver.termination_condition in [pyo.TerminationCondition.optimal, pyo.TerminationCondition.feasible, pyo.TerminationCondition.maxTimeLimit]):
+    
+    # 检查求解结果。如果终止状态是 maxTimeLimit，即使 status 是 aborted，也认为是一个可接受的解决方案。
+    if (results.solver.termination_condition == pyo.TerminationCondition.maxTimeLimit or
+        (results.solver.status == pyo.SolverStatus.ok and
+         results.solver.termination_condition in [pyo.TerminationCondition.optimal, pyo.TerminationCondition.feasible])):
+        
         print(f"\n求解成功！终止状态: {results.solver.termination_condition}")
         print(f"求解耗时: {end_time - start_time:.2f}秒")
-        print(f"最终目标值: {pyo.value(model.profit):.2f}")
         
-        output = []
-        for v in model.x.values():
-            val = pyo.value(v, exception=False)
-            if val is not None and val > 0.01:
-                i, j, k, y = v.index()
-                output.append({
-                    '年份': y,
-                    '季节': k,
-                    '地块编号': i,
-                    '作物名称': j,
-                    '种植面积（亩）': round(val, 4)
-                })
-        return pd.DataFrame(output)
+        # 检查是否找到了可行解
+        if pyo.value(model.profit) is not None:
+            print(f"最终目标值: {pyo.value(model.profit):.2f}")
+            
+            output = []
+            for v in model.x.values():
+                val = pyo.value(v, exception=False)
+                if val is not None and val > 0.01:
+                    i, j, k, y = v.index()
+                    output.append({
+                        '年份': y,
+                        '季节': k,
+                        '地块编号': i,
+                        '作物名称': j,
+                        '种植面积（亩）': round(val, 4)
+                    })
+            return pd.DataFrame(output)
+        else:
+            print("警告: 求解器在超时前未能找到任何可行解。")
+            return None
     else:
         print(f"\n求解失败，状态: {results.solver.termination_condition}")
         return None
