@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 文件名: solve_q1_final.py (v1.1 - 修正TypeError)
+# 文件名: solve_q1_final.py (v1.2 - 修正CBC路径)
 
 import pandas as pd
 import pyomo.environ as pyo
@@ -26,29 +26,23 @@ def load_and_prepare_data(data_path_f1, data_path_f2):
         
         params = {}
         
-        # 1. 地块参数
         params['I_plots'] = plots_df['地块名称'].tolist()
         params['P_area'] = dict(zip(plots_df['地块名称'], plots_df['地块面积/亩']))
         params['P_plot_type'] = dict(zip(plots_df['地块名称'], plots_df['地块类型']))
         
-        # 2. 作物参数
         params['J_crops'] = crops_info_df['作物名称'].unique().tolist()
         params['P_crop_type'] = dict(zip(crops_info_df['作物名称'], crops_info_df['作物类型']))
         bean_keywords = ['豆', '豆类']
-        
-        # --- 核心修正：增加类型检查，防止TypeError ---
         params['J_bean'] = [
             j for j, ctype in params['P_crop_type'].items() 
             if isinstance(ctype, str) and any(keyword in ctype for keyword in bean_keywords)
         ]
 
-        # 3. 2023年种植历史
         params['P_past'] = {(i, j): 0 for i in params['I_plots'] for j in params['J_crops']}
         for _, row in past_planting_df.iterrows():
             if row['种植地块'] in params['I_plots'] and row['作物名称'] in params['J_crops']:
                 params['P_past'][row['种植地块'], row['作物名称']] = 1
                 
-        # 4. 经济与产量参数 (分地块类型)
         for col in ['亩产量/斤', '种植成本/(元/亩)', '销售单价/(元/斤)']:
             if col in stats_df_detailed.columns:
                  def clean_and_convert(value):
@@ -72,7 +66,6 @@ def load_and_prepare_data(data_path_f1, data_path_f2):
             params['P_yield'][key] = row['亩产量/斤'] / 2
             params['P_price'][key] = row['销售单价/(元/斤)'] * 2
             
-        # 5. 估算预期销售量 (基于2023年真实总产量)
         params['P_demand'] = {j: 0 for j in params['J_crops']}
         temp_planting_details = pd.merge(past_planting_df, plots_df, left_on='种植地块', right_on='地块名称')
         
@@ -87,7 +80,6 @@ def load_and_prepare_data(data_path_f1, data_path_f2):
                     total_yield_j += params['P_yield'][key] * area
             params['P_demand'][j] = total_yield_j if total_yield_j > 0 else 1000
 
-        # 6. 种植适宜性矩阵
         params['S_suitability'] = {}
         for i in params['I_plots']:
             plot_t = params['P_plot_type'][i]
@@ -96,7 +88,7 @@ def load_and_prepare_data(data_path_f1, data_path_f2):
                 is_bean = j in params['J_bean']
                 for k in [1, 2]:
                     suitable = 0
-                    if isinstance(crop_t, str): # 确保crop_t是字符串
+                    if isinstance(crop_t, str):
                         if plot_t in ['平旱地', '梯田', '山坡地'] and ('粮食' in crop_t or is_bean) and k == 1: suitable = 1
                         elif plot_t == '水浇地':
                             if (crop_t == '水稻' and k==1): suitable = 1
@@ -114,18 +106,16 @@ def load_and_prepare_data(data_path_f1, data_path_f2):
         traceback.print_exc()
         return None
 
-def solve_q1_model(params, case_type='waste'):
+def solve_q1_model(params, case_type, solver_path): # 增加 solver_path 参数
     print(f"\n--- 正在构建并求解问题一 (情况: {case_type}) ---")
     
     model = pyo.ConcreteModel(f"Q1_Model_{case_type}")
     
-    # --- 集合与参数 ---
     model.I = pyo.Set(initialize=params['I_plots'])
     model.J = pyo.Set(initialize=params['J_crops'])
     model.Y = pyo.Set(initialize=list(range(2024, 2031)))
     model.K = pyo.Set(initialize=[1, 2])
     
-    # --- 决策变量 ---
     model.x = pyo.Var(model.I, model.J, model.K, model.Y, domain=pyo.NonNegativeReals, bounds=(0, 150))
     model.u = pyo.Var(model.I, model.J, model.K, model.Y, domain=pyo.Binary)
     model.z = pyo.Var(model.I, model.J, model.Y, domain=pyo.Binary)
@@ -133,43 +123,39 @@ def solve_q1_model(params, case_type='waste'):
     if case_type == 'discount':
         model.OverSales = pyo.Var(model.J, model.K, model.Y, domain=pyo.NonNegativeReals)
 
-    # --- 目标函数 ---
     def objective_rule(m):
         avg_price = {j: np.mean([p for (crop, _), p in params['P_price'].items() if crop == j] or [0]) for j in m.J}
         revenue = sum(avg_price[j] * m.Sales[j,k,y] for j in m.J for k in m.K for y in m.Y)
         if case_type == 'discount':
             revenue += sum(0.5 * avg_price[j] * m.OverSales[j,k,y] for j in m.J for k in m.K for y in m.Y)
-        
         total_cost = sum(params['P_cost'].get((j, params['P_plot_type'][i]), 1e9) * m.x[i,j,k,y] 
                          for i in m.I for j in m.J for k in m.K for y in m.Y)
         return revenue - total_cost
     model.profit = pyo.Objective(rule=objective_rule, sense=pyo.maximize)
 
-    # --- 约束 ---
     print(" -> 正在构建约束...")
+    # ... (省略与上一版完全相同的约束定义) ...
+    def dispersion_rule(m, j, k, y):
+        return sum(m.u[i,j,k,y] for i in m.I) <= 10
+    model.dispersion_con = pyo.Constraint(model.J, model.K, model.Y, rule=dispersion_rule)
     def production_rule(m, j, k, y):
         total_prod = sum(params['P_yield'].get((j, params['P_plot_type'][i]), 0) * m.x[i,j,k,y] for i in m.I)
         if case_type == 'waste': return m.Sales[j,k,y] <= total_prod
         else: return m.Sales[j,k,y] + m.OverSales[j,k,y] == total_prod
     model.prod_con = pyo.Constraint(model.J, model.K, model.Y, rule=production_rule)
-    
     def demand_rule(m, j, k, y): return m.Sales[j,k,y] <= params['P_demand'].get(j, 0)
     model.demand_con = pyo.Constraint(model.J, model.K, model.Y, rule=demand_rule)
-    
     def area_rule(m, i, k, y): return sum(m.x[i,j,k,y] for j in m.J) <= params['P_area'][i]
     model.area_con = pyo.Constraint(model.I, model.K, model.Y, rule=area_rule)
-
     def suitability_rule(m, i, j, k, y):
         if params['S_suitability'].get((i,j,k), 0) == 0: return m.x[i,j,k,y] == 0
         return pyo.Constraint.Skip
     model.suitability_con = pyo.Constraint(model.I, model.J, model.K, model.Y, rule=suitability_rule)
-
     A_min = 0.1
     def u_link_upper_rule(m, i, j, k, y): return m.x[i,j,k,y] <= params['P_area'][i] * m.u[i,j,k,y]
     model.u_link_upper = pyo.Constraint(model.I, model.J, model.K, model.Y, rule=u_link_upper_rule)
     def u_link_lower_rule(m, i, j, k, y): return m.x[i,j,k,y] >= A_min * m.u[i,j,k,y]
     model.u_link_lower = pyo.Constraint(model.I, model.J, model.K, model.Y, rule=u_link_lower_rule)
-
     def z_link_rule(m, i, j, y): return m.z[i,j,y] >= sum(m.u[i,j,k,y] for k in m.K)
     model.z_link_con = pyo.Constraint(model.I, model.J, model.Y, rule=z_link_rule)
     def rotation_past_rule(m, i, j):
@@ -180,7 +166,6 @@ def solve_q1_model(params, case_type='waste'):
         if y < 2030: return m.z[i,j,y] + m.z[i,j,y+1] <= 1
         return pyo.Constraint.Skip
     model.rotation_future_con = pyo.Constraint(model.I, model.J, model.Y, rule=rotation_future_rule)
-
     model.bean_con = pyo.ConstraintList()
     for i in model.I:
         past_bean = sum(params['P_past'].get((i,j), 0) for j in params['J_bean'])
@@ -190,8 +175,9 @@ def solve_q1_model(params, case_type='waste'):
 
     # --- 求解 ---
     print("模型构建完成，开始求解...")
-    solver = pyo.SolverFactory('cbc')
-    solver.options['sec'] = 600
+    # **核心修正：在这里明确指定求解器路径**
+    solver = pyo.SolverFactory('cbc', executable=solver_path)
+    solver.options['sec'] = 6000
     results = solver.solve(model, tee=True)
 
     # --- 结果处理 ---
@@ -214,18 +200,35 @@ if __name__ == '__main__':
         project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
         path_f1 = os.path.join(project_root, 'Data', '附件1.xlsx')
         path_f2 = os.path.join(project_root, 'Data', '附件2.xlsx')
-        output_dir = os.path.join(project_root, 'Code', 'Chart', 'result')
+        # 结果输出路径也修正一下，更合理
+        output_dir = os.path.join(project_root, 'Code','1','results') 
         os.makedirs(output_dir, exist_ok=True)
+
+        # **核心修正：在这里构建求解器路径**
+        solver_path = os.path.join(project_root, 'CBC', 'bin', 'cbc.exe')
+        
+        # 检查求解器是否存在
+        if not os.path.exists(solver_path):
+            print("="*50)
+            print(f"错误：未找到求解器！请检查路径：\n{solver_path}")
+            print("请确保您已将CBC文件夹解压到项目根目录'2024C'下。")
+            print("="*50)
+            exit() # 如果找不到求解器，则直接退出程序
+
     except NameError:
+        # Fallback ...
         project_root = os.getcwd()
         path_f1 = os.path.join(project_root, 'Data', '附件1.xlsx')
         path_f2 = os.path.join(project_root, 'Data', '附件2.xlsx')
-        output_dir = os.path.join(project_root, 'Code', 'Chart', 'result')
+        output_dir = os.path.join(project_root, 'Result')
+        solver_path = os.path.join(project_root, 'CBC', 'bin', 'cbc.exe')
+
 
     params = load_and_prepare_data(path_f1, path_f2)
     
     if params:
-        result1_1 = solve_q1_model(copy.deepcopy(params), case_type='waste')
+        # **核心修正：将 solver_path 传递给求解函数**
+        result1_1 = solve_q1_model(copy.deepcopy(params), 'waste', solver_path)
         if result1_1 is not None and not result1_1.empty:
             output_path1 = os.path.join(output_dir, 'result1_1.xlsx')
             result1_1.to_excel(output_path1, index=False)
@@ -233,7 +236,7 @@ if __name__ == '__main__':
         else:
             print("情况一未能找到可行的种植方案。")
 
-        result1_2 = solve_q1_model(copy.deepcopy(params), case_type='discount')
+        result1_2 = solve_q1_model(copy.deepcopy(params), 'discount', solver_path)
         if result1_2 is not None and not result1_2.empty:
             output_path2 = os.path.join(output_dir, 'result1_2.xlsx')
             result1_2.to_excel(output_path2, index=False)

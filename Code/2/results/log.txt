@@ -1,0 +1,79 @@
+C:\Users\86185\Desktop\2024C>python Code\2\process.py  
+正在读取Excel文件...
+ -> 基准数据参数准备完成。
+--- 正在生成未来发展情景 ---
+ -> 已生成 3 个情景。
+
+--- 正在构建并求解问题二 (随机规划模型) ---
+ -> 正在构建约束...
+模型构建完成，开始求解...
+Welcome to the CBC MILP Solver 
+Version: 2.10.12
+Build Date: Aug 20 2024
+
+command line - C:\Users\86185\Desktop\2024C\CBC\bin\cbc.exe -sec 300 -printingOptions all -import C:\Users\86185\AppData\Local\Temp\tmpmz55n9om.pyomo.lp -stat=1 -solve -solu C:\Users\86185\AppData\Local\Temp\tmpmz55n9om.pyomo.soln (default strategy 1)
+seconds was changed from 1e+100 to 300
+Option for printingOptions changed from normal to all
+ CoinLpIO::readLp(): Maximization problem reformulated as minimization
+Coin0009I Switching back to maximization to get correct duals etc 
+Presolve 3774 (-114054) rows, 41394 (-164616) columns and 82974 (-288006) elements
+Statistics for presolved model
+Original problem has 102060 integers (102060 of which binary)     
+
+
+Problem has 3774 rows, 41394 columns (41394 with objective) and 82974 elements
+There are 3774 singletons with objective
+Column breakdown:
+0 of type 0.0->inf, 41394 of type 0.0->up, 0 of type lo->inf,     
+0 of type lo->up, 0 of type free, 0 of type fixed,
+0 of type -inf->0.0, 0 of type -inf->up, 0 of type 0.0->1.0       
+Row breakdown:
+0 of type E 0.0, 0 of type E 1.0, 0 of type E -1.0,
+0 of type E other, 0 of type G 0.0, 0 of type G 1.0,
+0 of type G other, 1722 of type L 0.0, 0 of type L 1.0,
+2052 of type L other, 0 of type Range 0.0->1.0, 0 of type Range other,
+0 of type Free
+Continuous objective value is 4.96066e+09 - 0.34 seconds
+Cgl0004I processed model has 3774 rows, 39342 columns (0 integer (0 of which binary)) and 80922 elements
+Cbc3007W No integer variables - nothing to do
+Cuts at root node changed objective from 4.96066e+09 to 1.79769e+308
+Probing was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Gomory was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Knapsack was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+Clique was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+MixedIntegerRounding2 was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)       
+FlowCover was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+TwoMirCuts was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+ZeroHalf was tried 0 times and created 0 cuts of which 0 were active after adding rounds of cuts (0.000 seconds)
+
+Result - Optimal solution found
+
+Objective value:                4960662992.06335545
+Enumerated nodes:               0
+Total iterations:               0
+Time (CPU seconds):             5.01
+Time (Wallclock seconds):       5.01
+
+Total time (CPU seconds):       6.18   (Wallclock seconds):       6.18
+
+求解成功！正在整理 'avg' 场景的结果...
+问题二的结果已成功保存至: C:\Users\86185\Desktop\2024C\Result\result2.xlsx
+
+C:\Users\86185\Desktop\2024C>python Code\2\format.py   
+--- 开始运行最终格式转换脚本 ---
+正在从附件读取完整的地块和作物列表...
+模板列表加载完毕。
+
+>>> ------------------------------------
+>>> 正在处理文件: C:\Users\86185\Desktop\2024C\Code\2\results\result2.xlsx
+--> 正在处理 2024 年的数据...
+--> 正在处理 2025 年的数据...
+--> 正在处理 2026 年的数据...
+--> 正在处理 2027 年的数据...
+--> 正在处理 2028 年的数据...
+--> 正在处理 2029 年的数据...
+--> 正在处理 2030 年的数据...
+
+所有年份的汇总表已成功保存至: C:\Users\86185\Desktop\2024C\Code\2\results\result2_final_summary.xlsx
+
+--- 所有任务已完成 ---
