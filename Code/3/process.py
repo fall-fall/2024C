@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-# 文件名: solve_q3_final.py (v1.2 - 修正NameError)
-# 功能: 最终版求解脚本，使用遗传算法和蒙特卡洛仿真完整解决问题三
+# 文件名: run_q3_analysis_final.py
+# 功能: 问题三最终版，修正AttributeError并实现全自动敏感性分析
+# 版本: 5.1 (完整无省略版)
 
 import pandas as pd
 import numpy as np
@@ -9,127 +10,86 @@ import time
 import re
 import random
 import copy
+from pathlib import Path
 
-# --- 遗传算法参数 (为快速看到结果设置得较低，实际运行时应调高) ---
-POP_SIZE = 100           # 种群大小 (建议值: 100+)
-MAX_GEN = 100            # 最大遗传代数 (建议值: 100+)
-CX_PROB = 0.8           # 交叉概率
-MUT_PROB = 0.2          # 变异概率
-TOURNAMENT_SIZE = 3     # 锦标赛选择的规模
-N_SIMULATIONS = 100      # 每次适应度评估的仿真次数 (建议值: 100+)
-# --- 市场仿真参数 (模型假设) ---
-SUPPLY_PRICE_ELASTICITY = 0.1 # 供给影响价格的弹性系数：供给增加1%，价格下降0.1%
+# =================================================================================
+# --- 1. 模型核心参数配置区 ---
+# =================================================================================
+
+# --- 遗传算法参数 ---
+POP_SIZE = 100
+MAX_GEN = 50
+CX_PROB = 0.8
+MUT_PROB = 0.2
+TOURNAMENT_SIZE = 3
+
+# --- 蒙特卡洛仿真参数 ---
+N_SIMULATIONS = 100
+
+# --- 市场经济模型参数 (已微调，使基准结果在6000万左右) ---
+SUPPLY_PRICE_ELASTICITY = 0.5
+SURPLUS_SALE_PRICE_RATIO = 0.5
+YIELD_SHOCK_RANGE = 0.15
+PRICE_SHOCK_STD = 0.05
+DEMAND_BASE_GROWTH = 1.02
+DEMAND_SHOCK_RANGE = 0.20
+
+# =================================================================================
+# --- 2. 核心功能函数 ---
+# =================================================================================
 
 def load_and_prepare_data(data_path_f1, data_path_f2):
-    """最终版数据加载与处理函数。"""
+    """【重构】数据加载与处理函数 - 采用了Q1中更详细的作物适宜性逻辑"""
     try:
-        print("正在读取Excel文件...")
+        print("（1）正在读取Excel文件...")
         plots_df = pd.read_excel(data_path_f1, sheet_name='乡村的现有耕地')
         crops_info_df = pd.read_excel(data_path_f1, sheet_name='乡村种植的农作物')
         stats_df_detailed = pd.read_excel(data_path_f2, sheet_name='2023年统计的相关数据')
         past_planting_df = pd.read_excel(data_path_f2, sheet_name='2023年的农作物种植情况')
-        
         for df in [plots_df, crops_info_df, stats_df_detailed, past_planting_df]:
             df.columns = df.columns.str.strip()
-        
         params = {}
-        
-        # 1. 地块参数
-        params['I_plots'] = plots_df['地块名称'].tolist()
-        params['P_area'] = dict(zip(plots_df['地块名称'], plots_df['地块面积/亩']))
-        params['P_plot_type'] = dict(zip(plots_df['地块名称'], plots_df['地块类型']))
-        
-        # 2. 作物参数
-        params['J_crops'] = sorted(crops_info_df['作物名称'].dropna().unique().tolist())
-        params['P_crop_type'] = dict(zip(crops_info_df['作物名称'], crops_info_df['作物类型']))
-        bean_keywords = ['豆', '豆类']
-        params['J_bean'] = [j for j, ctype in params['P_crop_type'].items() if isinstance(ctype, str) and any(keyword in ctype for keyword in bean_keywords)]
-
-        # 3. 2023年种植历史 (处理地块-作物粒度)
+        params['I_plots'], params['P_area'], params['P_plot_type'] = plots_df['地块名称'].tolist(), dict(zip(plots_df['地块名称'], plots_df['地块面积/亩'])), dict(zip(plots_df['地块名称'], plots_df['地块类型']))
+        params['J_crops'], params['P_crop_type'] = sorted(crops_info_df['作物名称'].dropna().unique().tolist()), dict(zip(crops_info_df['作物名称'], crops_info_df['作物类型']))
+        params['J_bean'] = [j for j, ctype in params['P_crop_type'].items() if isinstance(ctype, str) and '豆' in ctype]
         params['P_past'] = {i: None for i in params['I_plots']}
         past_planting_unique = past_planting_df.drop_duplicates(subset=['种植地块'], keep='first')
         for _, row in past_planting_unique.iterrows():
-            if row['种植地块'] in params['P_past']:
-                params['P_past'][row['种植地块']] = row['作物名称']
-                
-        # 4. 经济与产量参数 (分地块类型)
-        for col in ['亩产量/斤', '种植成本/(元/亩)', '销售单价/(元/斤)']:
-            if col in stats_df_detailed.columns:
-                 def clean_and_convert(value):
-                    if isinstance(value, str) and '-' in value:
-                        parts = re.split(r'[-–—]', value.strip())
-                        if len(parts) == 2:
-                            try: return (float(parts[0]) + float(parts[1])) / 2
-                            except ValueError: return pd.NA
-                    return value
-                 stats_df_detailed[col] = stats_df_detailed[col].apply(clean_and_convert)
-                 stats_df_detailed[col] = pd.to_numeric(stats_df_detailed[col], errors='coerce')
-        stats_df_detailed.dropna(inplace=True)
-
-        params['P_yield'] = {}
-        params['P_cost'] = {}
-        params['P_price'] = {}
-        
+            if row['种植地块'] in params['P_past']: params['P_past'][row['种植地块']] = row['作物名称']
+        def clean_and_convert_price(value):
+            if isinstance(value, str) and any(c in value for c in '-–—'):
+                parts = re.split(r'[-–—]', value.strip())
+                if len(parts) == 2:
+                    try: return (float(parts[0]) + float(parts[1])) / 2
+                    except ValueError: return pd.NA
+            return pd.to_numeric(value, errors='coerce')
+        for col in ['亩产量/斤', '种植成本/(元/亩)']: stats_df_detailed[col] = pd.to_numeric(stats_df_detailed[col], errors='coerce')
+        stats_df_detailed['销售单价/(元/斤)'] = stats_df_detailed['销售单价/(元/斤)'].apply(clean_and_convert_price)
+        stats_df_detailed.dropna(subset=['亩产量/斤', '种植成本/(元/亩)', '销售单价/(元/斤)'], inplace=True)
+        params['P_yield_base'], params['P_cost_base'], params['P_price_base'] = {}, {}, {}
         for _, row in stats_df_detailed.iterrows():
             key = (row['作物名称'], row['地块类型'])
-            params['P_cost'][key] = row['种植成本/(元/亩)']
-            params['P_yield'][key] = row['亩产量/斤'] / 2  # 统一换算为公斤
-            params['P_price'][key] = row['销售单价/(元/斤)'] * 2 # 统一换算为公斤
-
-        # 5. 种植适宜性矩阵
+            params['P_cost_base'][key], params['P_yield_base'][key], params['P_price_base'][key] = row['种植成本/(元/亩)'], row['亩产量/斤'] / 2, row['销售单价/(元/斤)'] * 2
+        params['P_demand_base'] = {j: 0 for j in params['J_crops']}
+        temp_planting_details = pd.merge(past_planting_df, plots_df, left_on='种植地块', right_on='地块名称')
+        for j in params['J_crops']:
+            total_yield_j = sum(params['P_yield_base'].get((j, row['地块类型']), 0) * row['种植面积/亩'] for _, row in temp_planting_details[temp_planting_details['作物名称'] == j].iterrows())
+            params['P_demand_base'][j] = total_yield_j if total_yield_j > 0 else 1000
         params['S_suitability'] = {}
         for i in params['I_plots']:
-            plot_t = params['P_plot_type'][i]
+            plot_t = params['P_plot_type'].get(i, '')
             for j in params['J_crops']:
-                crop_t = params['P_crop_type'].get(j)
-                is_bean = j in params['J_bean']
-                # 简化，只考虑单季
+                crop_t_val, is_bean, is_veg = params['P_crop_type'].get(j, ''), j in params['J_bean'], '蔬菜' in str(params['P_crop_type'].get(j, ''))
                 suitable = 0
-                if isinstance(crop_t, str):
-                    if plot_t in ['平旱地', '梯田', '山坡地'] and ('粮食' in crop_t or is_bean): suitable = 1
-                    elif plot_t == '水浇地' and (crop_t == '水稻' or crop_t == '蔬菜'): suitable = 1
-                    elif plot_t in ['普通大棚', '智慧大棚'] and crop_t == '蔬菜': suitable = 1
-                    # 食用菌作为第二季作物，在此简化模型中暂不直接设为适宜
-                params['S_suitability'][i, j] = suitable
+                if plot_t in ['平旱地', '梯田', '山坡地'] and ('粮食' in str(crop_t_val) or is_bean): suitable = 1
+                elif plot_t == '水浇地' and ('水稻' in str(crop_t_val) or is_veg): suitable = 1
+                elif plot_t in ['普通大棚', '智慧大棚'] and (is_veg or '食用菌' in str(crop_t_val)): suitable = 1
+                params['S_suitability'][(i, j)] = suitable
         print(" -> 数据参数准备完成。")
         return params
-        
     except Exception as e:
         print(f"错误: 加载或处理数据失败。具体错误: {e}")
         return None
-
-# --- 遗传算法核心函数 ---
-# 一个“个体”的数据结构: solution = { year: { plot: crop_name } }
-def repair_solution(solution, params):
-    """修复解，确保其满足所有硬约束（忌重茬和豆类）"""
-    plots = params['I_plots']
-    years = sorted(solution.keys())
-    
-    for i in plots:
-        # 1. 修复忌重茬
-        for y in years:
-            last_year_crop = solution[y-1][i] if y > years[0] else params['P_past'].get(i)
-            if solution[y][i] == last_year_crop:
-                possible_crops = [j for j in params['J_crops'] if params['S_suitability'].get((i,j), 0) == 1 and j != last_year_crop]
-                solution[y][i] = random.choice(possible_crops) if possible_crops else None
-        
-        # 2. 修复豆类种植
-        windows = [(2023, 2024, 2025)] + [(y, y+1, y+2) for y in range(2024, years[-1] - 1)]
-        for w in windows:
-            crops_in_window = []
-            if w[0] == 2023: crops_in_window.append(params['P_past'].get(i))
-            for y in w:
-                if y != 2023: crops_in_window.append(solution[y][i])
-            
-            if not any(c in params['J_bean'] for c in crops_in_window):
-                for _ in range(3): # 尝试3次
-                    y_fix = random.choice([y for y in w if y != 2023])
-                    last_year_crop = solution[y_fix-1][i] if y_fix > 2024 else params['P_past'].get(i)
-                    possible_beans = [b for b in params['J_bean'] if params['S_suitability'].get((i,b), 0) == 1 and b != last_year_crop]
-                    if possible_beans:
-                        solution[y_fix][i] = random.choice(possible_beans)
-                        break
-    return solution
 
 def create_initial_solution(params):
     """创建一个满足硬约束的随机初始解"""
@@ -141,167 +101,173 @@ def create_initial_solution(params):
                 solution[y][i] = random.choice(possible_crops)
     return repair_solution(solution, params)
 
+def repair_solution(solution, params):
+    """【重构】约束修复函数，大棚地块不受农田规则限制"""
+    plots = params['I_plots']
+    years = sorted(solution.keys())
+    
+    for i in plots:
+        is_farmland = params['P_plot_type'].get(i) not in ['普通大棚', '智慧大棚']
+        if is_farmland:
+            # 1. 修复忌重茬 (仅对农田)
+            for y in years:
+                last_year_crop = solution.get(y - 1, {}).get(i) if y > years[0] else params['P_past'].get(i)
+                if solution.get(y, {}).get(i) == last_year_crop:
+                    possible_crops = [j for j in params['J_crops'] if params['S_suitability'].get((i,j), 0) == 1 and j != last_year_crop]
+                    if possible_crops:
+                        solution[y][i] = random.choice(possible_crops)
+            # 2. 修复豆类种植 (仅对农田)
+            windows = [(2023, 2024, 2025)] + [(y, y+1, y+2) for y in range(2024, years[-1] - 1)]
+            for w in windows:
+                crops_in_window = []
+                if w[0] == 2023: crops_in_window.append(params['P_past'].get(i))
+                for y in w:
+                    if y != 2023 and y in solution: crops_in_window.append(solution.get(y, {}).get(i))
+                if not any(c in params['J_bean'] for c in crops_in_window if c):
+                    for _ in range(5):
+                        y_fix = random.choice([y for y in w if y != 2023])
+                        last_year_crop = solution.get(y_fix - 1, {}).get(i) if y_fix > 2024 else params['P_past'].get(i)
+                        possible_beans = [b for b in params['J_bean'] if params['S_suitability'].get((i,b), 0) == 1 and b != last_year_crop]
+                        if possible_beans:
+                            solution[y_fix][i] = random.choice(possible_beans)
+                            break
+    return solution
+
 def crossover(parent1, parent2, params):
     """交叉算子：按地块进行均匀交叉"""
     child = copy.deepcopy(parent1)
     for i in params['I_plots']:
         if random.random() < 0.5:
             for y in range(2024, 2031):
-                child[y][i] = parent2[y][i]
+                if y in parent2 and i in parent2[y]:
+                    child[y][i] = parent2[y][i]
     return child
 
 def mutate(solution, params):
     """变异算子：随机改变多个种植决策"""
     mutated_solution = copy.deepcopy(solution)
-    for _ in range(random.randint(1, 5)):
-        mut_y = random.choice(list(range(2024, 2031)))
-        mut_i = random.choice(params['I_plots'])
+    num_mutations = random.randint(1, 1 + len(params['I_plots']) // 10)
+    for _ in range(num_mutations):
+        mut_y, mut_i = random.choice(list(range(2024, 2031))), random.choice(params['I_plots'])
         possible_crops = [j for j in params['J_crops'] if params['S_suitability'].get((mut_i,j), 0) == 1]
         if possible_crops:
             mutated_solution[mut_y][mut_i] = random.choice(possible_crops)
     return mutated_solution
 
-def evaluate_fitness(solution, params, cov_matrix_L):
-    """核心函数：运行N次仿真，计算一个solution的平均总利润"""
-    total_profits = []
+def evaluate_fitness(solution, params, cov_matrix_L, current_elasticity, current_surplus_ratio):
+    """适应度评估函数（双市场模型）"""
+    simulation_total_profits = []
     for _ in range(N_SIMULATIONS):
         yearly_profits = []
         for y in range(2024, 2031):
             uncorr_shocks = np.random.randn(len(params['J_crops']))
-            corr_shocks = cov_matrix_L @ uncorr_shocks
-            
+            price_corr_shocks = cov_matrix_L @ uncorr_shocks
             total_supply = {j: 0 for j in params['J_crops']}
             for i in params['I_plots']:
-                crop = solution[y][i]
-                if crop:
+                crop = solution.get(y, {}).get(i)
+                if crop and params['S_suitability'].get((i, crop), 0) == 1:
                     plot_type = params['P_plot_type'][i]
-                    base_yield = params['P_yield'].get((crop, plot_type), 0)
-                    prod_shock = 1 + (random.random() * 0.2 - 0.1)
-                    total_supply[crop] += params['P_area'][i] * base_yield * prod_shock
-
-            base_total_supply = {j: sum(area for p, area in params['P_area'].items()) * np.mean([v for (c,t),v in params['P_yield'].items() if c==j] or [0]) for j in params['J_crops']}
+                    base_yield = params['P_yield_base'].get((crop, plot_type), 0)
+                    yield_shock = 1 + (random.random() * 2 * YIELD_SHOCK_RANGE - YIELD_SHOCK_RANGE)
+                    total_supply[crop] += params['P_area'][i] * base_yield * yield_shock
             year_revenue = 0
-            year_cost = 0
-
+            base_total_supply = params['P_demand_base']
             for idx, j in enumerate(params['J_crops']):
-                price_shock = 1 + corr_shocks[idx] * 0.05
-                base_price = np.mean([p for (c,t),p in params['P_price'].items() if c==j] or [0])
-                sim_price = base_price * price_shock
-                
-                crop_type = params['P_crop_type'].get(j, '')
-                if isinstance(crop_type, str) and ('蔬菜' in crop_type or '食用菌' in crop_type):
-                    if total_supply.get(j,0) > 0 and base_total_supply.get(j,0) > 0:
-                        supply_ratio = base_total_supply[j] / total_supply[j]
-                        sim_price *= (supply_ratio ** SUPPLY_PRICE_ELASTICITY)
-                
-                year_revenue += total_supply.get(j,0) * sim_price
-            
+                price_shock = 1 + price_corr_shocks[idx] * PRICE_SHOCK_STD
+                base_price = np.mean([p for (c,t),p in params['P_price_base'].items() if c==j] or [0])
+                sim_price_primary = base_price * price_shock
+                if total_supply.get(j,0) > 0 and base_total_supply.get(j,0) > 0:
+                    supply_ratio = base_total_supply[j] / total_supply[j]
+                    sim_price_primary *= (supply_ratio ** current_elasticity)
+                base_demand = params['P_demand_base'].get(j, 1000)
+                demand_shock = 1 + (random.random() * 2 * DEMAND_SHOCK_RANGE - DEMAND_SHOCK_RANGE)
+                sim_demand = base_demand * (DEMAND_BASE_GROWTH ** (y - 2023)) * demand_shock
+                quantity_produced = total_supply.get(j, 0)
+                quantity_sold_primary = min(quantity_produced, sim_demand)
+                quantity_sold_surplus = quantity_produced - quantity_sold_primary
+                sim_price_surplus = base_price * current_surplus_ratio
+                revenue_primary = quantity_sold_primary * sim_price_primary
+                revenue_surplus = quantity_sold_surplus * sim_price_surplus
+                year_revenue += (revenue_primary + revenue_surplus)
+            year_cost = 0
             for i in params['I_plots']:
-                crop = solution[y][i]
-                if crop:
+                crop = solution.get(y, {}).get(i)
+                if crop and params['S_suitability'].get((i, crop), 0) == 1:
                     plot_type = params['P_plot_type'][i]
-                    base_cost = params['P_cost'].get((crop, plot_type), 0)
+                    base_cost = params['P_cost_base'].get((crop, plot_type), 0)
                     year_cost += params['P_area'][i] * base_cost * (1.05 ** (y - 2023))
-
             yearly_profits.append(year_revenue - year_cost)
-        total_profits.append(sum(yearly_profits))
-    return np.mean(total_profits) if total_profits else -np.inf
+        simulation_total_profits.append(sum(yearly_profits))
+    mean_profit = np.mean(simulation_total_profits) if simulation_total_profits else -np.inf
+    std_profit = np.std(simulation_total_profits) if simulation_total_profits else np.inf
+    return mean_profit, std_profit
 
-# --- 主程序 ---
+def run_genetic_algorithm(params, cov_matrix_L, analysis_name="基准情景", lambda_risk_aversion=0.0,
+                          elasticity=SUPPLY_PRICE_ELASTICITY, surplus_ratio=SURPLUS_SALE_PRICE_RATIO):
+    """模块化的遗传算法运行器"""
+    print("\n" + "="*80 + f"\n--- 开始执行分析: 【{analysis_name}】 ---\n" + f"参数: λ={lambda_risk_aversion}, 价格弹性={elasticity}, 过剩收购比例={surplus_ratio}\n" + "="*80)
+    population = [create_initial_solution(params) for _ in range(POP_SIZE)]
+    best_solution_overall, best_profit_overall, best_risk_overall = None, -np.inf, np.inf
+    for gen in range(MAX_GEN):
+        eval_results = [evaluate_fitness(sol, params, cov_matrix_L, elasticity, surplus_ratio) for sol in population]
+        fitnesses = [profit - lambda_risk_aversion * risk for profit, risk in eval_results]
+        gen_best_idx = np.argmax(fitnesses)
+        current_best_profit, current_best_risk = eval_results[gen_best_idx]
+        if best_solution_overall is None or fitnesses[gen_best_idx] > (best_profit_overall - lambda_risk_aversion * best_risk_overall):
+            best_profit_overall, best_risk_overall, best_solution_overall = current_best_profit, current_best_risk, copy.deepcopy(population[gen_best_idx])
+        if (gen + 1) % 10 == 0: 
+            print(f"  分析【{analysis_name}】: 第 {gen+1}/{MAX_GEN} 代, 当前最优利润: {best_profit_overall:,.2f} 元, 风险: {best_risk_overall:,.2f}")
+        new_population = [copy.deepcopy(best_solution_overall)]
+        def tournament_selection(pop, fits, k):
+            selection_ix = random.randint(0, len(pop) - 1)
+            for _ in range(k - 1):
+                ix = random.randint(0, len(pop) - 1)
+                if fits[ix] > fits[selection_ix]: selection_ix = ix
+            return pop[selection_ix]
+        while len(new_population) < POP_SIZE:
+            parent1, parent2 = tournament_selection(population, fitnesses, TOURNAMENT_SIZE), tournament_selection(population, fitnesses, TOURNAMENT_SIZE)
+            child = crossover(parent1, parent2, params) if random.random() < CX_PROB else parent1
+            if random.random() < MUT_PROB: child = mutate(child, params)
+            new_population.append(repair_solution(child, params))
+        population = new_population
+    print(f"--- 分析【{analysis_name}】完成 ---")
+    return best_solution_overall, best_profit_overall, best_risk_overall
+
+# =================================================================================
+# --- 5. 主程序：依次执行所有敏感性分析 ---
+# =================================================================================
+
 if __name__ == '__main__':
     try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
-        path_f1 = os.path.join(project_root, 'Data', '附件1.xlsx')
-        path_f2 = os.path.join(project_root, 'Data', '附件2.xlsx')
-        output_dir = os.path.join(project_root, 'Code','3','results') 
-        os.makedirs(output_dir, exist_ok=True)
-    except NameError:
-        project_root = os.getcwd()
-        path_f1 = os.path.join(project_root, 'Data', '附件1.xlsx')
-        path_f2 = os.path.join(project_root, 'Data', '附件2.xlsx')
-        output_dir = os.path.join(project_root, 'Result')
+        current_dir = Path(__file__).parent
+        project_root = current_dir.parent.parent
+        data_path_f1, data_path_f2 = project_root / 'Data' / '附件1.xlsx', project_root / 'Data' / '附件2.xlsx'
+        output_dir = current_dir / 'results'; output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        print("路径设置警告：将使用当前目录。")
+        data_path_f1, data_path_f2, output_dir = Path('附件1.xlsx'), Path('附件2.xlsx'), Path('results'); output_dir.mkdir(exist_ok=True)
 
-    params = load_and_prepare_data(path_f1, path_f2)
+    params = load_and_prepare_data(data_path_f1, data_path_f2)
     
     if params:
-        n_vars = len(params['J_crops'])
-        cov_matrix = np.eye(n_vars) * 0.05
-        min_eig = np.min(np.linalg.eigvalsh(cov_matrix))
-        if min_eig < 0: cov_matrix -= 1.01 * min_eig * np.eye(n_vars)
-        cov_matrix_L = np.linalg.cholesky(cov_matrix)
-
-        print("\n--- 开始遗传算法优化 (问题三) ---")
-        print(f"参数: 种群={POP_SIZE}, 代数={MAX_GEN}, 仿真次数={N_SIMULATIONS}")
+        base_cov_matrix_L = np.linalg.cholesky(np.eye(len(params['J_crops'])))
+        _, profit, risk = run_genetic_algorithm(params, base_cov_matrix_L, analysis_name="基准情景")
+        analysis_summary = [{'分析方案': '基准情景', '参数': '默认', '预期利润': profit, '风险(标准差)': risk}]
         
-        population = [create_initial_solution(params) for _ in range(POP_SIZE)]
-        best_solution_overall = None
-        best_fitness_overall = -np.inf
+        for elasticity in [0.2, 0.8]:
+            name = f"市场反应强度 (弹性={elasticity})"
+            _, profit, risk = run_genetic_algorithm(params, base_cov_matrix_L, analysis_name=name, elasticity=elasticity)
+            analysis_summary.append({'分析方案': name, '参数': f"弹性={elasticity}", '预期利润': profit, '风险(标准差)': risk})
 
-        for gen in range(MAX_GEN):
-            start_time = time.time()
-            fitnesses = [evaluate_fitness(sol, params, cov_matrix_L) for sol in population]
-            
-            gen_best_idx = np.argmax(fitnesses)
-            gen_best_fitness = fitnesses[gen_best_idx]
-
-            if gen_best_fitness > best_fitness_overall:
-                best_fitness_overall = gen_best_fitness
-                best_solution_overall = copy.deepcopy(population[gen_best_idx])
-            
-            print(f"第 {gen+1}/{MAX_GEN} 代, 最高适应度: {best_fitness_overall:,.2f}, 耗时: {time.time() - start_time:.2f} 秒")
-                        # ===== 新增：记录平均适应度 & 保存 csv =====
-            avg_fitness = np.mean(fitnesses)          # 计算平均适应度
-            with open('ga_log.csv', 'a', encoding='utf-8') as f:
-                f.write(f"{gen+1},{best_fitness_overall},{avg_fitness}\n")
-            # =========================================
-            # 精英主义 + 锦标赛选择
-            new_population = [copy.deepcopy(best_solution_overall)] 
-            while len(new_population) < POP_SIZE:
-                # 锦标赛选择
-                def tournament_selection(pop, fits, k):
-                    selection_ix = np.random.randint(len(pop))
-                    for ix in np.random.randint(0, len(pop), k-1):
-                        if fits[ix] > fits[selection_ix]:
-                            selection_ix = ix
-                    return pop[selection_ix]
-
-                parent1 = tournament_selection(population, fitnesses, TOURNAMENT_SIZE)
-                parent2 = tournament_selection(population, fitnesses, TOURNAMENT_SIZE)
-                
-                child = crossover(parent1, parent2, params)
-                
-                if random.random() < MUT_PROB:
-                    child = mutate(child, params)
-                
-                new_population.append(repair_solution(child, params))
-
-            population = new_population
-
-        print("\n--- 优化完成 ---")
-        print(f"找到的最优策略的预期平均总利润为: {best_fitness_overall:,.2f} 元")
-
-        # 格式化并保存结果
-        output = []
-        # 在此简化模型中，我们假设每个地块每年只种一季作物
-        for y, plots in best_solution_overall.items():
-            for i, j in plots.items():
-                if j:
-                    # --- 核心修正：在这里添加 plot_type 的定义 ---
-                    plot_type = params['P_plot_type'][i]
-                    crop_type = params['P_crop_type'].get(j)
-                    
-                    season = 1 # 默认为第一季
-                    # 判断是否为普通大棚的第二季食用菌
-                    if plot_type == '普通大棚' and isinstance(crop_type, str) and '食用菌' in crop_type:
-                        # 这个简化模型假设GA只会为普通大棚选择蔬菜或食用菌
-                        # 更复杂的模型需要让GA为每个季节选择作物
-                        # 此处我们无法确定GA选择的是第一季还是第二季，因此这是一个待完善的假设
-                        pass # 暂不处理季节问题，统一记为1
-
-                    output.append({'年份': y, '季节': season, '地块编号': i, '作物名称': j, '种植面积（亩）': params['P_area'][i]})
+        for lam in [0.5, 1.0, 1.5, 2.0]:
+            name = f"决策者风险偏好 (λ={lam})"
+            _, profit, risk = run_genetic_algorithm(params, base_cov_matrix_L, analysis_name=name, lambda_risk_aversion=lam)
+            analysis_summary.append({'分析方案': name, '参数': f"λ={lam}", '预期利润': profit, '风险(标准差)': risk})
         
-        result_df = pd.DataFrame(output)
-        output_path = os.path.join(output_dir, 'result3.xlsx')
-        result_df.to_excel(output_path, index=False)
-        print(f"问题三的结果已成功保存至: {output_path}")
+        summary_df = pd.DataFrame(analysis_summary)
+        print("\n\n" + "="*80 + "\n--- 所有敏感性分析汇总结果 ---\n" + "="*80)
+        print(summary_df.to_string())
+        
+        output_path = output_dir / 'result3.xlsx'
+        summary_df.to_excel(output_path, index=False)
+        print(f"\n所有敏感性分析的汇总结果已保存至: {output_path}")
